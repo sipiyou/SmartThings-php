@@ -1,6 +1,11 @@
 <?php
 
 class generalHelpers {
+    public function external_dbg ($p1,$p2) {
+        if (function_exists('exec_debug'))
+            exec_debug ($p1,$p2);
+    }
+    
     public function normalize (&$val, $div) {
         if ($val > 0)
             $val /= $div;
@@ -53,7 +58,7 @@ class generalHelpers {
     }
 }
 
-class smartThingsCloud {
+class smartThingsCloud extends generalHelpers {
     private $access_key;
     public $devicesUrl = "https://api.smartthings.com/v1/devices";
     public $deviceCommandUrl;
@@ -73,8 +78,8 @@ class smartThingsCloud {
         $fields_string = '';
     
         $ch = curl_init($url);
-        
-        exec_debug (3, "stCloud:Url=".$url);
+
+        $this->external_dbg (3, "stCloud:Url=".$url);
         
         if (is_array($payload)) {
             $fields_string = http_build_query($payload);
@@ -93,14 +98,14 @@ class smartThingsCloud {
         );
 
         if (!empty ($fields_string))
-            exec_debug (3, "stCloud:Fields".json_encode($fields_string));
+            $this->external_dbg (3, "stCloud:Fields".json_encode($fields_string));
         
         $resp = curl_exec($ch);
         
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        exec_debug (3, "stCloud:Resp ($httpCode)".$resp);
+        $this->external_dbg (3, "stCloud:Resp ($httpCode)".$resp);
         
         if ($httpCode == 200) {
             $respData = json_decode($resp,true);
@@ -170,7 +175,7 @@ class smartThingsCloud {
         $request = json_encode($myArray, JSON_UNESCAPED_SLASHES);
 
         $status = $this->requestData (sprintf ($this->deviceCommandUrl, $deviceID), "POST", $request);
-        exec_debug (1, "$deviceID:$capability:$command.result=".json_encode($status));
+        $this->external_dbg (1, "$deviceID:$capability:$command.result=".json_encode($status));
         
         if (isset($status['error'])) {
             $this->lastError = $status['error'];
@@ -256,7 +261,7 @@ class SamsungOCFTV extends generalHelpers {
             
             //print_r ($res);
             
-            exec_debug (1, json_encode($this->deviceStatus));
+            $this->external_dbg (1, json_encode($this->deviceStatus));
 
             return (true);
         }
@@ -271,6 +276,12 @@ class SamsungOCFAirConditioner extends generalHelpers {
     public $hasUpdatedDeviceStatus;
     public $myDeviceID;
     public $isOnline;
+
+    // these arrays are generated from json data
+    public $supportedAirConditionerModes = array(); // use values in 
+    public $supportedAcOptionalMode = array();
+    public $supportedAcFanModes = array();
+    public $supportedFanOscillationModes = array();
     
     private $stCloud;
 
@@ -316,7 +327,7 @@ class SamsungOCFAirConditioner extends generalHelpers {
             return true;
         }
         
-        exec_debug (1, "deviceID ".$this->myDeviceID." existiert nicht!");
+        $this->external_dbg (1, "deviceID ".$this->myDeviceID." existiert nicht!");
         return false;
     }
     
@@ -361,9 +372,15 @@ class SamsungOCFAirConditioner extends generalHelpers {
               }
             */
             $this->deviceStatus['humidity'] = $this->getValues ($res['components']['main']['relativeHumidityMeasurement']['humidity']);
-            $this->deviceStatus['mode']     = strtolower($this->getValues ($res['components']['main']['airConditionerMode']['airConditionerMode']));
-            $this->deviceStatus['fanMode']  = strtolower($this->getValues ($res['components']['main']['airConditionerFanMode']['fanMode']));
-            $this->deviceStatus['fanOscillationMode'] = strtolower($this->getValues ($res['components']['main']['fanOscillationMode']['fanOscillationMode']));
+            $this->supportedAirConditionerModes = $res['components']['main']['airConditionerMode']['supportedAcModes']['value'];
+            $this->deviceStatus['mode']     = $this->getValues ($res['components']['main']['airConditionerMode']['airConditionerMode']);
+
+            $this->supportedAcFanModes = $res['components']['main']['airConditionerFanMode']['supportedAcFanModes']['value'];
+            $this->deviceStatus['fanMode']  = $this->getValues ($res['components']['main']['airConditionerFanMode']['fanMode']);
+
+            $this->supportedFanOscillationModes = $res['components']['main']['fanOscillationMode']['supportedFanOscillationModes']['value'];
+            $this->deviceStatus['fanOscillationMode'] = $this->getValues ($res['components']['main']['fanOscillationMode']['fanOscillationMode']);
+            
             $this->deviceStatus['temperatureMeasurement']= $this->getValues ($res['components']['main']['temperatureMeasurement']['temperature']);
             $this->deviceStatus['thermostatCoolingSetpoint'] = $this->getValues ($res['components']['main']['thermostatCoolingSetpoint']['coolingSetpoint']);
             $this->deviceStatus['audioVolume'] = $this->getValues ($res['components']['main']['audioVolume']['volume']);
@@ -376,11 +393,13 @@ class SamsungOCFAirConditioner extends generalHelpers {
             $this->deviceStatus['dustFilterUsage'] = $this->getValues ($res['components']['main']['custom.dustFilter']['dustFilterUsage']);
             $this->deviceStatus['dustFilterStatus'] = strtolower($this->getValues ($res['components']['main']['custom.dustFilter']['dustFilterStatus']));
             $this->deviceStatus['dustFilterCapacity'] = $this->getValues ($res['components']['main']['custom.dustFilter']['dustFilterCapacity']);
-            $this->deviceStatus['acOptionalMode'] = strtolower($this->getValues ($res['components']['main']['custom.airConditionerOptionalMode']['acOptionalMode']));
+
+            $this->supportedAcOptionalMode = $res['components']['main']['custom.airConditionerOptionalMode']['supportedAcOptionalMode']['value'];
+            $this->deviceStatus['acOptionalMode'] = $this->getValues ($res['components']['main']['custom.airConditionerOptionalMode']['acOptionalMode']);
 
             //$this->deviceStatus['rssi'] = $this->getStateFromArray ($res['components']['main']['execute']['data']['value']['payload']['x.com.samsung.rm.rssi'],"0");
             
-            exec_debug (1, json_encode($this->deviceStatus));
+            $this->external_dbg (1, json_encode($this->deviceStatus));
 
             return (true);
         }
@@ -414,7 +433,7 @@ class SamsungOCFAirConditioner extends generalHelpers {
     }
 
     public function setDisplayLight ($onOff) {
-        // Die Funktion dreht die Werte um, damit es richtig abgebildet wird. Intern bei Sasmsung vertauscht
+        // Swap on/off. setDisplayLight (0) turs the display off.
         $val = ($onOff == 0) ? "Light_On" : "Light_Off";
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "execute","execute",array ("mode/vs/0", array("x.com.samsung.da.options" => array ("$val"))));
         return $result;
@@ -425,14 +444,13 @@ class SamsungOCFAirConditioner extends generalHelpers {
     }
 
     public function setSuperPlasmaIon ($onOff) {
-        // not tested. found in Forum
         $val = ($onOff == 0) ? "Spi_Off" : "Spi_On";
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "execute","execute",array ("mode/vs/0", array("x.com.samsung.da.options" => array ("$val"))));
         return $result;
     }
 
     public function getSuperPlasmaIon() {
-        return ($this->getIntStateFromArray ( $this->onOffArray, $this->deviceStatus['spiMode']));        
+        return ($this->getIntStateFromArray ( $this->onOffArray, $this->deviceStatus['spiMode']));
     }
     
     public function getSwitch () {
@@ -465,53 +483,76 @@ class SamsungOCFAirConditioner extends generalHelpers {
         return $result;
     }
 
-    public function getAirConditionerMode() {
-        $modes = array ("auto"=>0,"cool" =>1,"dry" =>2,"fan" =>3,"heat"=>4,"wind"=>5);
-        return ($this->getIntStateFromArray ( $modes, $this->deviceStatus['mode']));
+    public function getAirConditionerMode($returnResultAsInteger = 0) {
+        //$modes = array ("auto"=>0,"cool" =>1,"dry" =>2,"fan" =>3,"heat"=>4,"wind"=>5);
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray (array_flip ($this->supportedAirConditionerModes), $this->deviceStatus['mode']));
+        } else {
+            return ($this->deviceStatus['mode']);
+        }
     }
     
     public function setAirConditionerMode ($mode) {
-        $modes = array ("auto","cool","dry","fan","heat","wind");
+        //$modes = array ("auto","cool","dry","fan","heat","wind");
 
-        $val = "auto";
+        if (is_numeric ($mode)) {
+            $val = "auto";
 
-        if (isset ($modes[$mode]))
-            $val = $modes[$mode];
-
+            if (isset ($this->supportedAirConditionerModes[$mode]))
+                $val = $this->supportedAirConditionerModes[$mode];
+        } else {
+            $val = $mode;
+        }
+        
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "airConditionerMode","setAirConditionerMode","$val");
         return $result;
     }
 
-    public function getAirConditionerFanMode() {
-        $modes = array ("auto"=>0,"low"=>1,"medium"=>2,"high"=>3,"turbo"=>4);
-        return ($this->getIntStateFromArray ( $modes, $this->deviceStatus['fanMode']));
+    public function getAirConditionerFanMode($returnResultAsInteger = 0) {
+        //$modes = array ("auto"=>0,"low"=>1,"medium"=>2,"high"=>3,"turbo"=>4);
+        
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray ( array_flip($this->supportedAcFanModes), $this->deviceStatus['fanMode']));
+        } else {
+            return ($this->deviceStatus['fanMode']);
+        }
     }
     
     public function setAirConditionerFanMode ($mode) {
-        $mode = array ("auto","low","medium","high","turbo");
+        //$mode = array ("auto","low","medium","high","turbo");
 
-        $val = "auto";
-        
-        if (isset ($mode[$mode]))
-            $val = $mode[$mode];
-        
+        if (is_numeric ($mode)) {
+            $val = "auto";
+            
+            if (isset ($this->supportedAcFanModes[$mode]))
+                $val = $this->supportedAcFanModes[$mode];
+        } else {
+            $val = $mode;
+        }
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "airConditionerFanMode","setFanMode","$val");
         return $result;
     }
 
-    public function getFanOscillationMode () {
-        $modes = array ("fixed"=>0,"all"=>1,"vertical"=>2,"horizontal"=>3);
-        return ($this->getIntStateFromArray ( $modes, $this->deviceStatus['fanOscillationMode']));
+    public function getFanOscillationMode ($returnResultAsInteger = 0) {
+        //$modes = array ("fixed"=>0,"all"=>1,"vertical"=>2,"horizontal"=>3);
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray ( array_flip ($this->supportedFanOscillationModes), $this->deviceStatus['fanOscillationMode']));
+        } else {
+            return ($this->deviceStatus['fanOscillationMode']);
+        }
     }
     
     public function setFanOscillationMode ($mode) {
-        $modes = array ("fixed","all","vertical","horizontal");
-        
-        $val = "fixed";
-        
-        if (isset ($modes[$mode]))
-            $val = $modes[$mode];
+        //$modes = array ("fixed","all","vertical","horizontal");
 
+        if (is_numeric ($mode)) {
+            $val = "fixed";
+            
+            if (isset ($this->supportedFanOscillationModes[$mode]))
+                $val = $this->supportedFanOscillationModes[$mode];
+        } else {
+            $val = $mode;
+        }
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "fanOscillationMode","setFanOscillationMode","$val");
         return $result;
     }
@@ -527,19 +568,26 @@ class SamsungOCFAirConditioner extends generalHelpers {
         return $result;
     }
 
-    public function getAirConditionerOptionalMode () {
-        $modes = array ("off"=>0,"sleep"=>1,"speed"=>2,"windFree"=>3,"windFreeSleep"=>4);
-        return ($this->getIntStateFromArray ( $modes, $this->deviceStatus['acOptionalMode']));
+    public function getAirConditionerOptionalMode ($returnResultAsInteger = 0) {
+        //$modes = array ("off"=>0,"sleep"=>1,"speed"=>2,"windFree"=>3,"windFreeSleep"=>4);
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray ( array_flip ($this->supportedAcOptionalMode), $this->deviceStatus['acOptionalMode']));
+        } else {
+            return ($this->deviceStatus['acOptionalMode']);
+        }
     }
         
     public function setAirConditionerOptionalMode ($mode) {
-        $modes = array ("off","sleep","speed","windFree","windFreeSleep");
-        
-        $val = "off";
-        
-        if (isset ($modes[$mode]))
-            $val = $modes[$mode];
-                                                
+        //$modes = array ("off","sleep","speed","windFree","windFreeSleep");
+
+        if (is_numeric ($mode)) {
+            $val = "off";
+            
+            if (isset ($this->supportedAcOptionalMode[$mode]))
+                $val = $this->supportedAcOptionalMode[$mode];
+        } else {
+            $val = $mode;
+        }
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "custom.airConditionerOptionalMode","setAcOptionalMode","$val");
         return $result;
     }
