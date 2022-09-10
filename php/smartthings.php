@@ -1,5 +1,13 @@
 <?php
 
+/*
+  (c) 2022 Nima Ghassemi Nejad (sipiyou@hotmail.com)
+
+  v 1.0  - initial release
+    1.01 - minor bugfixes
+    1.02 - SamsungOCFTV: support for setAudioMute, setTvChannel, setTvChannelUp, setTvChannelDown
+ */
+
 class generalHelpers {
     public function external_dbg ($p1,$p2) {
         if (function_exists('exec_debug'))
@@ -194,6 +202,10 @@ class SamsungOCFTV extends generalHelpers {
     private $stCloud;
 
     public $jsonData;
+
+    public $supportedSoundModes = array(); // use values in
+    public $supportedPlaybackCommands = array();
+    
     public $deviceStatus = array (
         "switch" => 0,
         "audioVolume" => 0,
@@ -201,6 +213,8 @@ class SamsungOCFTV extends generalHelpers {
         "tvChannelName" => 0,
         "inputSource" => 0,
         "audioMute" => 0,
+        "soundMode" => 0,
+        "playbackStatus" => 0,
     );
     
     public function __construct ($deviceID, smartThingsCloud $stCloud) {
@@ -241,14 +255,95 @@ class SamsungOCFTV extends generalHelpers {
 
     public function setAudioVolume ($volume) {
         // input values = 0 .. 100%
-        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID,"audioVolume","setVolume",$volume);
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID,"audioVolume","setVolume",intval($volume));        
         return $result;
     }
 
+    public function setAudioMute ($mute) {
+        $val = ($mute == 1) ? "mute" : "unmute";
+        
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "audioMute","$val");
+        return $result;
+    }
+
+    public function setTvChannel ($channel) {
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","setTvChannel","$channel");
+        return $result;
+    }
+
+    public function setTvChannelName ($cname) {
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","setTvChannelName","$cname");
+        return $result;
+    }
+    
+    public function setTvChannelUp() {
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","channelUp");
+        return $result;
+    }
+
+    public function setTvChannelDown() {
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","channelDown");
+        return $result;
+    }
+
+
+
+    public function getSoundMode ($returnResultAsInteger = 0) {
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray (array_flip ($this->supportedSoundModes), $this->deviceStatus['soundMode']));
+        } else {
+            return ($this->deviceStatus['soundMode']);
+        }
+    }
+    
+    public function setSoundMode ($mode) {
+        // TBD. This function results "success" but nothing happens. API not properly implemented ?!
+        $val = "";
+        if (is_numeric ($mode)) {
+            $val = $mode;
+            if (isset ($this->supportedSoundModes[$mode]))
+                $val = $this->supportedSoundModes[$mode];
+        } else {
+            $val = $mode;
+        }
+        
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "custom.soundmode","setSoundMode","$val");
+        return $result;
+    }
+    
+    public function getPlaybackStatus ($returnResultAsInteger = 0) {
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray (array_flip ($this->$supportedPlaybackCommands), $this->deviceStatus['playbackStatus']));
+        } else {
+            return ($this->deviceStatus['playbackStatus']);
+        }
+    }
+
+    public function setPlaybackStatus ($mode) {
+        // Seems only to work if tv outputs mediaplayback status. On my tv this option is outputting empty string.
+        $val = "";
+        if (is_numeric ($mode)) {
+            $val = $mode;
+            if (isset ($this->supportedPlaybackCommands[$mode]))
+                $val = $this->supportedPlaybackCommands[$mode];
+        } else {
+            $val = $mode;
+        }
+        
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "mediaPlayback","setPlaybackStatus","$val");
+        return $result;
+    }
+
+    
+        
     public function processDeviceStatus () {
         $res = $this->jsonData;
- 
+
+        //print_r ($res);
         if (isset($res['components']['main'])) {
+
+            $this->deviceStatus['soundMode'] = $this->getValues ($res['components']['main']['custom.soundmode']['soundMode']);
+            $this->supportedSoundModes = $this->getValues($res['components']['main']['custom.soundmode']['supportedSoundModes']);
 
             $this->deviceStatus['disabledCapacities'] = $this->getValues ($res['components']['main']['custom.disabledCapabilities']['disabledCapabilities']);
             $this->deviceStatus['switch'] = $this->getValues ($res['components']['main']['switch']['switch']);
@@ -258,8 +353,11 @@ class SamsungOCFTV extends generalHelpers {
             $this->deviceStatus['tvChannelName']     = $this->getValues ($res['components']['main']['tvChannel']['tvChannelName']);
             $this->deviceStatus['inputSource']  = $this->getValues ($res['components']['main']['mediaInputSource']['inputSource']);
             $this->deviceStatus['audioMute'] = $this->getValues ($res['components']['main']['audioMute']['mute']);
-            
-            //print_r ($res);
+
+            $this->supportedPlaybackCommands = $this->getValues($res['components']['main']['mediaPlayback']['supportedPlaybackCommands']);
+            $this->deviceStatus['playbackStatus'] = $this->getValues ($res['components']['main']['mediaPlayback']['playbackStatus']);
+
+            //print_r ($this->deviceStatus);
             
             $this->external_dbg (1, json_encode($this->deviceStatus));
 
