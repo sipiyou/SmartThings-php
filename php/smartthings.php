@@ -64,7 +64,9 @@ class generalHelpers {
         //print "value = $val, $unit : $ts\n";
         return ($val);
     }
+
 }
+
 
 class smartThingsCloud extends generalHelpers {
     private $access_key;
@@ -119,7 +121,8 @@ class smartThingsCloud extends generalHelpers {
             $respData = json_decode($resp,true);
             return ($respData);
         } else {
-            // 401 = unauthorized
+            // 401 = unauthorized | 409 etc.
+            $this->lastError = $resp;
             return (false);
         }
     }
@@ -184,25 +187,73 @@ class smartThingsCloud extends generalHelpers {
 
         $status = $this->requestData (sprintf ($this->deviceCommandUrl, $deviceID), "POST", $request);
         $this->external_dbg (1, "$deviceID:$capability:$command.result=".json_encode($status));
-        
-        if (isset($status['error'])) {
-            $this->lastError = $status['error'];
+
+        if ($status === false) {
+            print "last error = $this->lastError\n";
+            //$this->lastError = $status['error'];
             return (false);
         }
         $this->lastResponse = $status['results'];
         return (true);
     }
 }
- 
-class SamsungOCFTV extends generalHelpers {
+
+class smartThingsCloudHelper extends generalHelpers {
+    public $stCloud;
+    
+    public $jsonData;
     public $hasUpdatedDeviceStatus;
     public $myDeviceID;
     public $isOnline;
+    public $onOffArray = array ("off" => 0, "on" => 1);
+
+    public function __construct ($deviceID, smartThingsCloud $stCloud) {
+        $this->stCloud = $stCloud;
+        $this->hasUpdatedDeviceStatus = false;
+        $this->myDeviceID = $deviceID;
+        //$this->getDeviceStatus();
+    }
     
-    private $stCloud;
+    public function loadJsonData ($json) {
+        // load Json from string instead of getting it from cloud.
+        $tmp = json_decode ($json, true);
 
-    public $jsonData;
+        if (isset ($tmp[$this->myDeviceID])) {
+            $this->jsonData = $tmp[$this->myDeviceID];
+            
+            $this->hasUpdatedDeviceStatus = true;            
+            return true;
+        }
 
+        $this->hasUpdatedDeviceStatus = false;
+        $this->external_dbg (1, "deviceID ".$this->myDeviceID." existiert nicht!");
+        return false;
+    }
+    
+    public function getDeviceStatus () {
+        $response = $this->stCloud->getDeviceStatusByDeviceID ($this->myDeviceID);
+
+        if (isset($response['components']['main'])) {
+            $this->hasUpdatedDeviceStatus = true;
+        } else {
+            $this->hasUpdatedDeviceStatus = false;
+        }
+        $this->jsonData = $response;
+
+        return ($this->hasUpdatedDeviceStatus);
+    }
+
+    public function getHealth() {
+        $res = $this->stCloud->getDeviceHealthByDeviceID ($this->myDeviceID);
+        if (isset ($res['state'])) {
+            if ($res['state'] == 'ONLINE')
+                return true;
+        }
+        return false;
+    }
+}
+
+class SamsungOCFTV extends smartThingsCloudHelper {
     public $supportedSoundModes = array(); // use values in
     public $supportedPlaybackCommands = array();
     
@@ -216,36 +267,11 @@ class SamsungOCFTV extends generalHelpers {
         "soundMode" => 0,
         "playbackStatus" => 0,
     );
-    
-    public function __construct ($deviceID, smartThingsCloud $stCloud) {
-        $this->stCloud = $stCloud;
-        $this->hasUpdatedDeviceStatus = false;
-        $this->myDeviceID = $deviceID;
-        //$this->getDeviceStatus();
+        
+    public function getSwitch () {
+        return ($this->getIntStateFromArray ( $this->onOffArray, $this->deviceStatus['switch']));
     }
 
-    public function getHealth() {
-        $res = $this->stCloud->getDeviceHealthByDeviceID ($this->myDeviceID);
-        if (isset ($res['state'])) {
-            if ($res['state'] == 'ONLINE')
-                return true;
-        }
-        return false;
-    }
-    
-    public function getDeviceStatus () {
-        $response = $this->stCloud->getDeviceStatusByDeviceID ($this->myDeviceID);
-
-        if (isset($response['components']['main'])) {
-            $this->hasUpdatedDeviceStatus = 1;
-        } else {
-            $this->hasUpdatedDeviceStatus = 0;
-        }
-        $this->jsonData = $response;
-
-        return ($this->hasUpdatedDeviceStatus);
-    }
-    
     public function setSwitch ($onOff) {
         $val = ($onOff == 1) ? "on" : "off";
         
@@ -253,12 +279,21 @@ class SamsungOCFTV extends generalHelpers {
         return $result;
     }
 
+    public function getAudioVolume() {
+        return ($this->deviceStatus['audioVolume']);
+    }
+    
     public function setAudioVolume ($volume) {
         // input values = 0 .. 100%
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID,"audioVolume","setVolume",intval($volume));        
         return $result;
     }
 
+    public function getAudioMute () {
+        // unmuted = 0, muted = 1
+        return ($this->getIntStateFromArray ( array("unmuted","muted"), $this->deviceStatus['audioMute']));
+    }
+    
     public function setAudioMute ($mute) {
         $val = ($mute == 1) ? "mute" : "unmute";
         
@@ -266,11 +301,19 @@ class SamsungOCFTV extends generalHelpers {
         return $result;
     }
 
+    public function getTvChannel() {
+        return ($this->deviceStatus['tvChannel']);
+    }
+    
     public function setTvChannel ($channel) {
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","setTvChannel","$channel");
         return $result;
     }
 
+    public function getTvChannelName() {
+        return ($this->deviceStatus['tvChannelName']);
+    }
+    
     public function setTvChannelName ($cname) {
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","setTvChannelName","$cname");
         return $result;
@@ -285,8 +328,6 @@ class SamsungOCFTV extends generalHelpers {
         $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "tvChannel","channelDown");
         return $result;
     }
-
-
 
     public function getSoundMode ($returnResultAsInteger = 0) {
         if ($returnResultAsInteger) {
@@ -370,22 +411,12 @@ class SamsungOCFTV extends generalHelpers {
     
 }
 
-class SamsungOCFAirConditioner extends generalHelpers {
-    public $hasUpdatedDeviceStatus;
-    public $myDeviceID;
-    public $isOnline;
-
+class SamsungOCFAirConditioner extends smartThingsCloudHelper {
     // these arrays are generated from json data
     public $supportedAirConditionerModes = array(); // use values in 
     public $supportedAcOptionalMode = array();
     public $supportedAcFanModes = array();
     public $supportedFanOscillationModes = array();
-    
-    private $stCloud;
-
-    public $jsonData;
-
-    public $onOffArray = array ("off" => 0, "on" => 1);
     
     public $deviceStatus = array (
         "switch" => 0,
@@ -408,48 +439,6 @@ class SamsungOCFAirConditioner extends generalHelpers {
         "dustFilterCapacity" => 0, // value in hours
         "disabledCapacities" => 0,
     );
-
-    public function __construct ($deviceID, smartThingsCloud $stCloud) {
-        $this->stCloud = $stCloud;
-        $this->hasUpdatedDeviceStatus = false;
-        $this->myDeviceID = $deviceID;
-        //$this->getDeviceStatus();
-    }
-
-    public function loadJsonData ($json) {
-        // load Json from string instead of getting it from cloud.
-        $tmp = json_decode ($json, true);
-
-        if (isset ($tmp[$this->myDeviceID])) {
-            $this->jsonData = $tmp[$this->myDeviceID];
-            return true;
-        }
-        
-        $this->external_dbg (1, "deviceID ".$this->myDeviceID." existiert nicht!");
-        return false;
-    }
-    
-    public function getHealth() {
-        $res = $this->stCloud->getDeviceHealthByDeviceID ($this->myDeviceID);
-        if (isset ($res['state'])) {
-            if ($res['state'] == 'ONLINE')
-                return true;
-        }
-        return false;
-    }
-    
-    public function getDeviceStatus () {
-        $response = $this->stCloud->getDeviceStatusByDeviceID ($this->myDeviceID);
-
-        if (isset($response['components']['main'])) {
-            $this->hasUpdatedDeviceStatus = 1;
-        } else {
-            $this->hasUpdatedDeviceStatus = 0;
-        }
-        $this->jsonData = $response;
-
-        return ($this->hasUpdatedDeviceStatus);
-    }
     
     public function processDeviceStatus () {
         $res = $this->jsonData;
