@@ -6,6 +6,7 @@
   v 1.0  - initial release
     1.01 - minor bugfixes
     1.02 - SamsungOCFTV: support for setAudioMute, setTvChannel, setTvChannelUp, setTvChannelDown
+    1.03 - several bugfixes
  */
 
 class generalHelpers {
@@ -256,16 +257,17 @@ class smartThingsCloudHelper extends generalHelpers {
 class SamsungOCFTV extends smartThingsCloudHelper {
     public $supportedSoundModes = array(); // use values in
     public $supportedPlaybackCommands = array();
+    public $supportedMediaInputSources = array();
     
     public $deviceStatus = array (
         "switch" => 0,
         "audioVolume" => 0,
         "tvChannel" => 0,
         "tvChannelName" => 0,
-        "inputSource" => 0,
         "audioMute" => 0,
         "soundMode" => 0,
         "playbackStatus" => 0,
+        "mediaInputSource" => 0,
     );
         
     public function getSwitch () {
@@ -341,7 +343,7 @@ class SamsungOCFTV extends smartThingsCloudHelper {
         // TBD. This function results "success" but nothing happens. API not properly implemented ?!
         $val = "";
         if (is_numeric ($mode)) {
-            $val = $mode;
+            $mode = intval($mode);
             if (isset ($this->supportedSoundModes[$mode]))
                 $val = $this->supportedSoundModes[$mode];
         } else {
@@ -364,7 +366,7 @@ class SamsungOCFTV extends smartThingsCloudHelper {
         // Seems only to work if tv outputs mediaplayback status. On my tv this option is outputting empty string.
         $val = "";
         if (is_numeric ($mode)) {
-            $val = $mode;
+            $mode = intval($mode);
             if (isset ($this->supportedPlaybackCommands[$mode]))
                 $val = $this->supportedPlaybackCommands[$mode];
         } else {
@@ -375,8 +377,30 @@ class SamsungOCFTV extends smartThingsCloudHelper {
         return $result;
     }
 
+    public function getMediaInputSource ($returnResultAsInteger = 0) {
+        if ($returnResultAsInteger) {
+            return ($this->getIntStateFromArray (array_flip ($this->supportedMediaInputSources), $this->deviceStatus['mediaInputSource']));
+        } else {
+            return ($this->deviceStatus['mediaInputSource']);
+        }
+    }
     
+    public function setMediaInputSource ($source) {
+        // Seems only to work if tv outputs mediaplayback status. On my tv this option is outputting empty string.
+        $val = "";
+        if (is_numeric ($source)) {
+            $source = intval($source);
+            if (isset ($this->supportedMediaInputSources[$source]))
+                $val = $this->supportedMediaInputSources[$source];
+        } else {
+            $val = $source;
+        }
         
+        $result = $this->stCloud->setDeviceCommandCompose ($this->myDeviceID, "mediaInputSource","setInputSource","$val");
+        return $result;
+    }
+
+    
     public function processDeviceStatus () {
         $res = $this->jsonData;
 
@@ -392,11 +416,13 @@ class SamsungOCFTV extends smartThingsCloudHelper {
             
             $this->deviceStatus['tvChannel'] = $this->getValues ($res['components']['main']['tvChannel']['tvChannel']);
             $this->deviceStatus['tvChannelName']     = $this->getValues ($res['components']['main']['tvChannel']['tvChannelName']);
-            $this->deviceStatus['inputSource']  = $this->getValues ($res['components']['main']['mediaInputSource']['inputSource']);
             $this->deviceStatus['audioMute'] = $this->getValues ($res['components']['main']['audioMute']['mute']);
 
             $this->supportedPlaybackCommands = $this->getValues($res['components']['main']['mediaPlayback']['supportedPlaybackCommands']);
             $this->deviceStatus['playbackStatus'] = $this->getValues ($res['components']['main']['mediaPlayback']['playbackStatus']);
+
+            $this->deviceStatus['mediaInputSource'] = $this->getValues ($res['components']['main']['mediaInputSource']['inputSource']);
+            $this->supportedMediaInputSources = $this->getValues($res['components']['main']['mediaInputSource']['supportedInputSources']);
 
             //print_r ($this->deviceStatus);
             
